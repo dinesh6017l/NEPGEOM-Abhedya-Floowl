@@ -1,0 +1,139 @@
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body, html {
+    height: 100%;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+#app-container {
+    display: flex;
+    height: 100vh;
+    width: 100vw;
+    position: relative;
+}
+
+#map {
+    flex-grow: 1;
+    height: 100%;
+}
+
+#ui-box {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    width: 320px;
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    z-index: 10;
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+}
+
+#ui-box h2 {
+    margin-bottom: 15px;
+    font-size: 1.2rem;
+    color: #333;
+}
+
+#ui-box h3 {
+    margin: 15px 0 10px 0;
+    font-size: 1rem;
+    color: #444;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+input {
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+button {
+    padding: 10px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+button:hover {
+    background-color: #0056b3;
+}
+
+hr {
+    margin: 20px 0;
+    border: none;
+    border-top: 1px solid #eee;
+}
+
+#location-list {
+    list-style: none;
+}
+
+#location-list li {
+    padding: 8px 0;
+    border-bottom: 1px solid #eee;
+    font-size: 0.9rem;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+#location-list li .loc-text {
+    flex-grow: 1;
+}
+
+#location-list li:hover .loc-text {
+    color: #007bff;
+}
+
+#location-list li .delete-btn {
+    color: #ff4444;
+    font-size: 1.1rem;
+    padding: 0 5px;
+    opacity: 0.5;
+    transition: opacity 0.2s;
+}
+
+#location-list li .delete-btn:hover {
+    opacity: 1;
+}
+
+.token-warning {
+    margin-top: 20px;
+    color: #d9534f;
+    font-weight: bold;
+    font-size: 0.85rem;
+}
+
+/* Custom 3D-looking CSS Marker */
+.custom-marker {
+    width: 30px;
+    height: 30px;
+    background-color: #ff0055;
+    border: 2px solid white;
+    border-radius: 50% 50% 50% 0;
+    transform: rotate(-45deg);
+    box-shadow: -2px 2px 5px rgba(0,0,0,0.5), inset 2px -2px 5px rgba(255,255,255,0.4);
+    cursor: pointer;
+    transition: transform 0.2s ease-in-out;
+}
+
+.custom-marker:hover {
+    transform: rotate(-45deg) scale(1.2);
+}
+

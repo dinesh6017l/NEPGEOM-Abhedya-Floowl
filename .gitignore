@@ -1,0 +1,43 @@
+# Node.js / NPM
+node_modules/
+package-lock.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+env.bak/
+venv.bak/
+
+# Environment and Config files
+api/config.json
+.env
+.env.local
+
+# Databases
+backend/database.sqlite
+backend/*.db
+backend/*.sqlite3
+
+# OS / System files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
