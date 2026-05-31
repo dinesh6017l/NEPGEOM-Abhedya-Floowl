@@ -41,8 +41,65 @@
             </div>
             <div id="complex-mode-content" style="display:none;">
                 <h2>Advanced Simulation</h2>
-                <p>Complex mode parameters will appear here in the new branch.</p>
+                <p style="font-size:0.85rem;color:#666;">Configure parameters in the right panel, then click a location or select a region.</p>
             </div>
+        </div>
+
+        <!-- Right-side complex mode parameter panel -->
+        <div id="complex-params-panel" style="display:none;">
+            <h3>Flood Simulation Parameters</h3>
+            <div id="complex-params">
+                <div class="param-row">
+                    <label for="param-precipitation">Rainfall Intensity (mm/hr)</label>
+                    <input type="range" id="param-precipitation" min="1" max="200" value="25" step="1">
+                    <span class="param-value" id="precipitation-value">25 mm/hr</span>
+                </div>
+                <div class="param-row">
+                    <label for="param-duration">Storm Duration (hours)</label>
+                    <input type="range" id="param-duration" min="1" max="72" value="6" step="1">
+                    <span class="param-value" id="duration-value">6 hrs</span>
+                </div>
+                <div class="param-row">
+                    <label for="param-infiltration">Soil Infiltration Rate (mm/hr)</label>
+                    <input type="range" id="param-infiltration" min="0" max="50" value="10" step="0.5">
+                    <span class="param-value" id="infiltration-value">10 mm/hr</span>
+                </div>
+                <div class="param-row">
+                    <label for="param-manning">Manning's Roughness (n)</label>
+                    <select id="param-manning">
+                        <option value="0.015">Concrete / Pavement (0.015)</option>
+                        <option value="0.030">Bare Earth (0.030)</option>
+                        <option value="0.040" selected>Agricultural / Grass (0.040)</option>
+                        <option value="0.060">Scrub / Light Forest (0.060)</option>
+                        <option value="0.100">Dense Forest (0.100)</option>
+                        <option value="0.035">Urban / Mixed (0.035)</option>
+                    </select>
+                </div>
+                <div class="param-row">
+                    <label for="param-soil">Soil Type</label>
+                    <select id="param-soil">
+                        <option value="sand">Sand (high infiltration)</option>
+                        <option value="loam" selected>Loam (moderate)</option>
+                        <option value="clay">Clay (low infiltration)</option>
+                        <option value="rock">Rock / Impervious</option>
+                    </select>
+                </div>
+                <div class="param-row">
+                    <label for="param-resolution">Simulation Resolution</label>
+                    <select id="param-resolution">
+                        <option value="low">Low (fast)</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="high">High (accurate)</option>
+                    </select>
+                </div>
+                <div class="param-row">
+                    <label for="param-river-threshold">River Sensitivity</label>
+                    <input type="range" id="param-river-threshold" min="80" max="99" value="95" step="1">
+                    <span class="param-value" id="river-threshold-value">95th percentile</span>
+                </div>
+                <button id="run-complex-btn">Run Complex Simulation</button>
+            </div>
+            <p class="export-status" id="complex-status"></p>
         </div>
         
         <!-- The Mapbox GL Map Container -->

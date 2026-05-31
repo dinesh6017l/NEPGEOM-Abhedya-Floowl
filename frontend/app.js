@@ -1721,6 +1721,7 @@ async function initializeApp() {
     const modeComplexBtn = document.getElementById('mode-complex-btn');
     const simpleContent = document.getElementById('simple-mode-content');
     const complexContent = document.getElementById('complex-mode-content');
+    const complexPanel = document.getElementById('complex-params-panel');
 
     function setMode(mode) {
         if (mode === 'complex') {
@@ -1728,16 +1729,111 @@ async function initializeApp() {
             modeComplexBtn.classList.add('active');
             simpleContent.style.display = 'none';
             complexContent.style.display = 'block';
+            complexPanel.style.display = 'block';
         } else {
             modeComplexBtn.classList.remove('active');
             modeSimpleBtn.classList.add('active');
             complexContent.style.display = 'none';
+            complexPanel.style.display = 'none';
             simpleContent.style.display = 'block';
         }
     }
 
     modeSimpleBtn.addEventListener('click', () => setMode('simple'));
     modeComplexBtn.addEventListener('click', () => setMode('complex'));
+
+    // Live parameter value display
+    function wireRangeDisplay(inputId, displayId, suffix) {
+        const input = document.getElementById(inputId);
+        const display = document.getElementById(displayId);
+        if (input && display) {
+            input.addEventListener('input', () => {
+                display.textContent = input.value + ' ' + suffix;
+            });
+        }
+    }
+    wireRangeDisplay('param-precipitation', 'precipitation-value', 'mm/hr');
+    wireRangeDisplay('param-duration', 'duration-value', 'hrs');
+    wireRangeDisplay('param-infiltration', 'infiltration-value', 'mm/hr');
+    wireRangeDisplay('param-river-threshold', 'river-threshold-value', 'th percentile');
+
+    // Complex simulation run
+    const runComplexBtn = document.getElementById('run-complex-btn');
+    const complexStatus = document.getElementById('complex-status');
+    if (runComplexBtn) {
+        runComplexBtn.addEventListener('click', async () => {
+            const bounds = getActiveEditBounds();
+            if (!bounds) {
+                complexStatus.textContent = 'Click a location or select a region first.';
+                complexStatus.className = 'export-status error';
+                complexStatus.style.display = 'block';
+                return;
+            }
+
+            complexStatus.textContent = 'Running complex simulation...';
+            complexStatus.className = 'export-status';
+            complexStatus.style.display = 'block';
+
+            try {
+                const response = await fetch('/api/simulate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        minLng: bounds.minLng,
+                        minLat: bounds.minLat,
+                        maxLng: bounds.maxLng,
+                        maxLat: bounds.maxLat,
+                        precipitation: parseFloat(document.getElementById('param-precipitation').value),
+                        duration: parseFloat(document.getElementById('param-duration').value),
+                        infiltration: parseFloat(document.getElementById('param-infiltration').value),
+                        manning: parseFloat(document.getElementById('param-manning').value),
+                        soil: document.getElementById('param-soil').value,
+                        resolution: document.getElementById('param-resolution').value,
+                        river_threshold: parseInt(document.getElementById('param-river-threshold').value)
+                    })
+                });
+                const payload = await parseJsonResponse(response);
+
+                if (response.ok && payload) {
+                    complexStatus.textContent = 'Complex simulation complete.';
+                    complexStatus.className = 'export-status success';
+
+                    if (payload.depth_png) {
+                        const sourceId = 'depth-simulation-source';
+                        const layerId = 'depth-simulation-layer';
+
+                        if (map.getLayer(layerId)) map.removeLayer(layerId);
+                        if (map.getSource(sourceId)) map.removeSource(sourceId);
+
+                        const pBounds = payload.png_bounds || payload.bounds;
+                        map.addSource(sourceId, {
+                            type: 'image',
+                            url: payload.depth_png,
+                            coordinates: [
+                                [pBounds.minLng, pBounds.maxLat],
+                                [pBounds.maxLng, pBounds.maxLat],
+                                [pBounds.maxLng, pBounds.minLat],
+                                [pBounds.minLng, pBounds.minLat]
+                            ]
+                        });
+                        map.addLayer({
+                            id: layerId,
+                            type: 'raster',
+                            source: sourceId,
+                            paint: { 'raster-opacity': 0.75, 'raster-fade-duration': 0 }
+                        });
+                    }
+                } else {
+                    complexStatus.textContent = (payload && payload.error) || 'Complex simulation failed';
+                    complexStatus.className = 'export-status error';
+                }
+            } catch (err) {
+                complexStatus.textContent = 'Error: ' + err.message;
+                complexStatus.className = 'export-status error';
+            }
+            complexStatus.style.display = 'block';
+        });
+    }
 
     const warningEl = document.getElementById('token-warning');
     refreshLocationNamePlaceholder();

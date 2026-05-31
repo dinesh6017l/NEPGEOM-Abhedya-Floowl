@@ -275,3 +275,72 @@ hr {
 #run-complex-btn:hover {
     background: #b71c1c;
 }
+
+/* Complex mode right-side parameter panel */
+#complex-params-panel {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    width: 280px;
+    background: white;
+    padding: 18px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    z-index: 10;
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+}
+
+#complex-params-panel h3 {
+    font-size: 1rem;
+    color: #333;
+    margin-bottom: 14px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #d32f2f;
+}
+
+#complex-params-panel .param-row {
+    margin-bottom: 12px;
+}
+
+#complex-params-panel .param-row label {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #444;
+    margin-bottom: 4px;
+}
+
+#complex-params-panel .param-row input[type="range"] {
+    width: 100%;
+    padding: 0;
+    margin: 0;
+}
+
+#complex-params-panel .param-row select {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    background: #fff;
+}
+
+.param-value {
+    font-size: 0.75rem;
+    color: #888;
+    display: block;
+    text-align: right;
+    margin-top: 2px;
+}
+
+#complex-params-panel #run-complex-btn {
+    width: 100%;
+    padding: 10px;
+    margin-top: 8px;
+    font-size: 0.9rem;
+}
+
+#complex-params-panel .export-status {
+    margin-top: 8px;
+}
