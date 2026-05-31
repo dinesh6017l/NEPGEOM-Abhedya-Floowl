@@ -91,13 +91,13 @@ body, html {
 
 /* Map controls (2D/3D, zoom, compass) */
 #map-controls {
-    position: absolute;
+    position: fixed;
     bottom: 30px;
-    left: 360px;
+    left: 30px;
     display: flex;
     flex-direction: column;
     gap: 4px;
-    z-index: 10;
+    z-index: 9999;
 }
 
 .map-control-btn {
