@@ -807,7 +807,7 @@ def simulate():
             algorithm=data.get('algorithm', 'test-algo'),
             river_threshold_pct=data.get('river_threshold', 95),
             display_threshold_pct=data.get('display_threshold', 50),
-            precipitation=data.get('precipitation', 25),
+            precipitation=data.get('precipitation', 1),
             duration=data.get('duration', 6),
             infiltration=data.get('infiltration', 10),
             manning_n=data.get('manning', 0.04),

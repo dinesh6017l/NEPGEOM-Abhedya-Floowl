@@ -286,7 +286,7 @@ def compute_arcgis_flood(dem, river_mask, transform,
 def run(bounds, token, output_dir=None, zoom=None, expand_factor=2.0,
         river_threshold_pct=95, display_threshold_pct=50,
         algorithm='test-algo',
-        precipitation=25, duration=6,
+        precipitation=1, duration=6,
         infiltration=10, manning_n=0.04, soil_type='loam',
         resolution='medium'):
     if output_dir is None:
