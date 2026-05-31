@@ -372,7 +372,8 @@ def run(bounds, token, output_dir=None, zoom=None, expand_factor=2.0,
             dem, osm_mask, osm_weight, transform,
             decay_length_m=decay_length_L,
             max_flood_height_m=max_flood_height_H,
-            effective_rain_mm=effective_rain_mm
+            effective_rain_mm=effective_rain_mm,
+            flow_acc=flow_acc
         )
         method_name = 'test-algo'
     else:
@@ -385,7 +386,8 @@ def run(bounds, token, output_dir=None, zoom=None, expand_factor=2.0,
             dem, osm_mask, osm_weight, transform,
             decay_length_m=decay_length_L,
             max_flood_height_m=max_flood_height_H,
-            effective_rain_mm=effective_rain_mm
+            effective_rain_mm=effective_rain_mm,
+            flow_acc=flow_acc
         )
         method_name = 'test-algo'
 
@@ -425,10 +427,15 @@ def run(bounds, token, output_dir=None, zoom=None, expand_factor=2.0,
 
         normed = np.where(flood_crop < 0, 0, normed)
 
-        R = np.where(normed > 0, (255 - 80 * normed).astype(np.uint8), 0)
-        G = np.where(normed > 0, (128 * (1 - normed)).astype(np.uint8), 0)
-        B = np.where(normed > 0, (128 * (1 - normed)).astype(np.uint8), 0)
-        alpha = np.where(normed > 0, (80 + 175 * normed).astype(np.uint8), 0)
+        if method_name == 'test-algo':
+            intensity = (np.exp(normed * 4) - 1) / (np.exp(4) - 1)
+        else:
+            intensity = normed
+
+        R = np.where(normed > 0, (255 - 80 * intensity).astype(np.uint8), 0)
+        G = np.where(normed > 0, (128 * (1 - intensity)).astype(np.uint8), 0)
+        B = np.where(normed > 0, (128 * (1 - intensity)).astype(np.uint8), 0)
+        alpha = np.where(normed > 0, (80 + 175 * intensity).astype(np.uint8), 0)
 
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         png_filename = f'susceptibility_{timestamp}.png'
