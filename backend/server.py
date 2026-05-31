@@ -805,7 +805,7 @@ def simulate():
         result = sim.run(
             bounds, arcgis_token,
             river_threshold_pct=data.get('river_threshold', 95),
-            display_threshold_pct=data.get('display_threshold', 75),
+            display_threshold_pct=data.get('display_threshold', 50),
             precipitation=data.get('precipitation', 25),
             duration=data.get('duration', 6),
             infiltration=data.get('infiltration', 10),

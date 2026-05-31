@@ -114,7 +114,7 @@ def compute_velocity_field(dem, nodata=None):
     return u_norm, v_norm, mag, mag_max
 
 
-def compute_river_proximity_and_hand(river_mask, dem, max_dist_pixels=120):
+def compute_river_proximity_and_hand(river_mask, dem):
     ny, nx = river_mask.shape
     INF = 1e10
 
@@ -124,90 +124,60 @@ def compute_river_proximity_and_hand(river_mask, dem, max_dist_pixels=120):
     dist[river_mask] = 0.0
     river_elev[river_mask] = dem[river_mask]
 
-    updated = river_mask.copy()
+    frontier = river_mask.copy()
 
-    for iteration in range(max_dist_pixels + 1):
-        if not updated.any():
-            break
-
-        pad_updated = np.pad(updated, 1, mode='constant', constant_values=False)
+    while frontier.any():
+        pad_frontier = np.pad(frontier, 1, mode='constant', constant_values=False)
         pad_dist = np.pad(dist, 1, mode='constant', constant_values=INF)
         pad_relev = np.pad(river_elev, 1, mode='edge')
 
-        next_updated = np.zeros_like(updated, dtype=bool)
+        next_frontier = np.zeros_like(frontier, dtype=bool)
 
         for dr in (-1, 0, 1):
             for dc in (-1, 0, 1):
                 if dr == 0 and dc == 0:
                     continue
 
-                nbr_upd = pad_updated[1+dr:1+dr+ny, 1+dc:1+dc+nx]
+                nbr_fr = pad_frontier[1+dr:1+dr+ny, 1+dc:1+dc+nx]
                 nbr_dist = pad_dist[1+dr:1+dr+ny, 1+dc:1+dc+nx]
                 nbr_relev = pad_relev[1+dr:1+dr+ny, 1+dc:1+dc+nx]
 
-                step = 1.0 if dr == 0 or dc == 0 else np.sqrt(2)
+                step = 1.0 if dr == 0 or dc == 0 else math.sqrt(2)
                 candidate_dist = nbr_dist + step
 
-                closer = nbr_upd & (candidate_dist < dist)
+                closer = nbr_fr & (candidate_dist < dist)
                 dist = np.where(closer, candidate_dist, dist)
                 river_elev = np.where(closer, nbr_relev, river_elev)
-                next_updated = next_updated | closer
+                next_frontier = next_frontier | closer
 
-        updated = next_updated
+        frontier = next_frontier
 
     hand = dem - river_elev
     return dist, hand
 
 
-def compute_flood_spread(dem, river_mask, river_rise=2.0, max_iter=80, diffusion=0.03):
+def compute_flood_susceptibility(dem, river_mask, transform,
+                                  decay_length_m=100.0, max_flood_height_m=5.0):
     """
-    Simulate flood water spreading outward from river channels.
-    
-    Water starts at river cells at elevation + river_rise, then spreads
-    to adjacent cells if their elevation is ≤ incoming water level.
-    Water level drops by `diffusion` per step, creating a natural
-    outward decay.  Returns flood depth at every cell.
+    Flood susceptibility via exponential distance decay × HAND.
+    Scale-invariant — works identically at 500 m or 50 km.
+
+    score = exp(-dist_m / L) * max(0, 1 - hand / H)
+
+    dist_m  = Euclidean distance to nearest river cell (metres)
+    hand    = Height Above Nearest Drainage (elevation above river)
+    L       = decay length — risk drops to 1/e at L metres
+    H       = max flood height — cells above this get zero risk
     """
-    ny, nx = dem.shape
-    NEG_INF = -1e10
+    pixel_size_m = math.sqrt(abs(transform.a * transform.e))
 
-    water_level = np.full((ny, nx), NEG_INF, dtype=np.float64)
-    water_level[river_mask] = dem[river_mask] + river_rise
-    flooded = river_mask.copy()
+    dist_pixels, hand = compute_river_proximity_and_hand(river_mask, dem)
+    dist_m = dist_pixels * pixel_size_m
 
-    for iteration in range(max_iter):
-        if not flooded.any():
-            break
+    dist_score = np.exp(-dist_m / max(decay_length_m, 1.0))
+    hand_score = np.clip(1.0 - hand / max(max_flood_height_m, 0.1), 0, 1)
 
-        pad_flooded = np.pad(flooded, 1, mode='constant', constant_values=False)
-        pad_water = np.pad(water_level, 1, mode='constant', constant_values=NEG_INF)
-
-        new_flooded = np.zeros_like(flooded, dtype=bool)
-
-        for dr in (-1, 0, 1):
-            for dc in (-1, 0, 1):
-                if dr == 0 and dc == 0:
-                    continue
-
-                nbr_fld = pad_flooded[1+dr:1+dr+ny, 1+dc:1+dc+nx]
-                nbr_wat = pad_water[1+dr:1+dr+ny, 1+dc:1+dc+nx]
-
-                adjacent = nbr_fld & ~flooded
-                incoming = nbr_wat - diffusion
-
-                can_flood = adjacent & (dem <= incoming)
-                new_wl = np.maximum(dem, incoming)
-
-                update = can_flood & (new_wl > water_level)
-                water_level = np.where(update, new_wl, water_level)
-                new_flooded = new_flooded | update
-
-        flooded = flooded | new_flooded
-        if not new_flooded.any():
-            break
-
-    flood_depth = np.maximum(water_level - dem, 0)
-    return flood_depth
+    return dist_score * hand_score
 
 
 def run(bounds, token, output_dir=None, zoom=None, expand_factor=2.0,
@@ -223,7 +193,6 @@ def run(bounds, token, output_dir=None, zoom=None, expand_factor=2.0,
         'sand': 25, 'loam': 10, 'clay': 3, 'rock': 1
     }
     effective_infiltration = infiltration if infiltration > 0 else soil_infiltration_map.get(soil_type, 10)
-
     effective_rain = max(0, precipitation - effective_infiltration) * duration
     manning_factor = np.clip(manning_n / 0.04, 0.5, 2.5)
 
@@ -243,7 +212,7 @@ def run(bounds, token, output_dir=None, zoom=None, expand_factor=2.0,
     }
 
     dem, transform, dem_bounds = download_dem_arcgis(expanded_bounds,
-                                                     width=dem_size, height=dem_size)
+                                                      width=dem_size, height=dem_size)
 
     u_norm, v_norm, mag, _ = compute_velocity_field(dem)
     flow_acc = compute_flow_accumulation_mfd(dem, u_norm, v_norm)
@@ -255,14 +224,15 @@ def run(bounds, token, output_dir=None, zoom=None, expand_factor=2.0,
         river_mask = np.zeros_like(flow_acc, dtype=bool)
         river_mask[flow_acc == flow_acc.max()] = True
 
-    # Flood spread: water rises from rivers and spreads outward
-    river_rise = np.clip(1.0 + effective_rain / 300.0, 1.0, 8.0)
-    max_iter = 80
-    flood_depth = compute_flood_spread(
-        dem, river_mask,
-        river_rise=river_rise,
-        max_iter=max_iter,
-        diffusion=np.clip(0.03 * manning_factor, 0.01, 0.10)
+    # Scale-invariant flood susceptibility
+    effective_rain_mm = effective_rain
+    max_flood_height_H = np.clip(0.5 + effective_rain_mm / 200.0, 0.5, 20.0)
+    decay_length_L = np.clip(150.0 / manning_factor, 30.0, 300.0)
+
+    flood_score = compute_flood_susceptibility(
+        dem, river_mask, transform,
+        decay_length_m=decay_length_L,
+        max_flood_height_m=max_flood_height_H
     )
 
     inv_transform = ~transform
@@ -276,45 +246,43 @@ def run(bounds, token, output_dir=None, zoom=None, expand_factor=2.0,
     if col1 > col0 and row1 > row0:
         dem_crop = dem[row0:row1, col0:col1].astype(np.float64)
         mag_crop = mag[row0:row1, col0:col1].astype(np.float64)
-        flood_crop = flood_depth[row0:row1, col0:col1]
-
-        flood_score = np.where(flood_crop > 0.01, flood_crop, -1.0)
+        flood_crop = flood_score[row0:row1, col0:col1].copy()
 
         MARGIN = 2
-        flood_score[:MARGIN, :] = -1
-        flood_score[-MARGIN:, :] = -1
-        flood_score[:, :MARGIN] = -1
-        flood_score[:, -MARGIN:] = -1
+        flood_crop[:MARGIN, :] = -1
+        flood_crop[-MARGIN:, :] = -1
+        flood_crop[:, :MARGIN] = -1
+        flood_crop[:, -MARGIN:] = -1
 
-        valid = flood_score >= 0
-        fsv = flood_score[valid]
+        valid = flood_crop >= 0
+        fsv = flood_crop[valid]
         if fsv.size > 0:
             dmax = float(np.percentile(fsv, 99))
             if dmax < 0.01:
-                dmax = float(np.max(fsv)) if fsv.size > 0 else 0.01
+                dmax = float(np.max(fsv))
         else:
             dmax = 0.01
 
         low = dmax * (display_threshold_pct / 100.0)
         if dmax > low:
-            normed = np.clip((flood_score - low) / (dmax - low + 1e-10), 0, 1)
+            normed = np.clip((flood_crop - low) / (dmax - low + 1e-10), 0, 1)
         else:
-            normed = np.zeros_like(flood_score)
+            normed = np.zeros_like(flood_crop)
 
-        normed = np.where(flood_score < 0, 0, normed)
+        normed = np.where(flood_crop < 0, 0, normed)
 
-        R = np.where(normed > 0, (255 - 116 * normed).astype(np.uint8), 0)
-        G = np.where(normed > 0, (150 * (1 - normed)).astype(np.uint8), 0)
-        B = np.where(normed > 0, (150 * (1 - normed)).astype(np.uint8), 0)
-        alpha = np.where(normed > 0, (100 + 155 * normed).astype(np.uint8), 0)
+        R = np.where(normed > 0, (255 - 80 * normed).astype(np.uint8), 0)
+        G = np.where(normed > 0, (128 * (1 - normed)).astype(np.uint8), 0)
+        B = np.where(normed > 0, (128 * (1 - normed)).astype(np.uint8), 0)
+        alpha = np.where(normed > 0, (80 + 175 * normed).astype(np.uint8), 0)
 
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         png_filename = f'susceptibility_{timestamp}.png'
         png_path = os.path.join(output_dir, png_filename)
 
         png_profile = {
-            'driver': 'PNG', 'height': flood_score.shape[0],
-            'width': flood_score.shape[1], 'count': 4, 'dtype': 'uint8'
+            'driver': 'PNG', 'height': flood_crop.shape[0],
+            'width': flood_crop.shape[1], 'count': 4, 'dtype': 'uint8'
         }
         with rasterio.open(png_path, 'w', **png_profile) as dst:
             dst.write(R, 1)
@@ -339,7 +307,7 @@ def run(bounds, token, output_dir=None, zoom=None, expand_factor=2.0,
         'bounds': bounds,
         'expanded_bounds': expanded_bounds,
         'shape': list(dem.shape) if png_filename else None,
-        'method': 'flood_spread_susceptibility',
+        'method': 'exponential_distance_decay_x_hand',
         'params': {
             'river_threshold_percentile': river_threshold_pct,
             'display_threshold_pct': display_threshold_pct,
@@ -352,11 +320,10 @@ def run(bounds, token, output_dir=None, zoom=None, expand_factor=2.0,
             'resolution': resolution,
             'dem_size': dem_size,
             'effective_rain_mm': effective_rain,
-            'river_rise_m': round(river_rise, 2),
-            'diffusion': round(np.clip(0.03 * manning_factor, 0.01, 0.10), 4),
-            'flood_max_depth_m': round(dmax, 2)
+            'decay_length_L_m': round(decay_length_L, 1),
+            'max_flood_height_H_m': round(max_flood_height_H, 2),
+            'flood_score_max': round(float(dmax), 4)
         },
-        'max_river_distance_pixels': max_iter,
         'expand_factor': expand_factor,
         'velocity_range': {
             'u_min': float(np.min(u_norm)),
