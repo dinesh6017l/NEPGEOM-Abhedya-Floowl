@@ -1870,13 +1870,24 @@ async function initializeApp() {
             warningEl.style.display = 'none';
         }
 
+        const KU_CENTER = [85.5374, 27.6182];
         map = new mapboxgl.Map({
             container: 'map', 
             style: 'mapbox://styles/mapbox/satellite-streets-v12',
-            center: [85.5374, 27.6182],
-            zoom: 14,
-            pitch: 45, 
-            bearing: -17.6 
+            center: KU_CENTER,
+            zoom: 3,
+            pitch: 0,
+            bearing: 0
+        });
+
+        map.once('load', () => {
+            map.flyTo({
+                center: KU_CENTER,
+                zoom: 14,
+                pitch: 45,
+                bearing: -17.6,
+                duration: 5000
+            });
         });
 
         // Update input fields on map click

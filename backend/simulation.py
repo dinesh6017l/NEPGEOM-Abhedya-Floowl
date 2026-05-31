@@ -355,14 +355,17 @@ def compute_river_proximity_and_hand_weighted(river_mask, dem, river_weight):
 
 
 def compute_test_algo(dem, river_mask, river_weight, transform,
-                       decay_length_m=150.0, max_flood_height_m=5.0):
+                       decay_length_m=150.0, max_flood_height_m=5.0,
+                       effective_rain_mm=0.0):
     """
-    OSM-river-weighted exponential decay.
+    OSM-river-weighted exponential decay with rain-responsive weighting.
 
-    Only waterways with significant width/volume ('river', 'canal') produce
-    meaningful flood scores; small streams and drains are suppressed.
+    During heavy precipitation even small waterways become flood hazards
+    via a rain-boost applied to the base waterway weight.
 
-    score = w_nearest · exp(-dist_m / L) · max(0, 1 − HAND / H)
+    score = w_boosted · exp(-dist_m / L) · max(0, 1 − HAND / H)
+
+    w_boosted = min(1.0, w + effective_rain / 1000)
     """
     pixel_size_m = math.sqrt(abs(transform.a * transform.e))
     dist_pixels, hand, w = compute_river_proximity_and_hand_weighted(
@@ -370,9 +373,13 @@ def compute_test_algo(dem, river_mask, river_weight, transform,
     )
     dist_m = dist_pixels * pixel_size_m
 
+    # Rain boost: small waterways gain hazard during heavy rain
+    rain_boost = effective_rain_mm / 1000.0
+    w_boosted = np.clip(w + rain_boost, 0, 1)
+
     dist_score = np.exp(-dist_m / max(decay_length_m, 1.0))
     hand_score = np.clip(1.0 - hand / max(max_flood_height_m, 0.1), 0, 1)
-    return w * dist_score * hand_score
+    return w_boosted * dist_score * hand_score
 
 
 def compute_arcgis_flood(dem, river_mask, transform,
@@ -482,7 +489,7 @@ def run(bounds, token, output_dir=None, zoom=None, expand_factor=2.0,
 
     # Algorithm selection
     effective_rain_mm = effective_rain
-    max_flood_height_H = np.clip(0.5 + effective_rain_mm / 200.0, 0.5, 20.0)
+    max_flood_height_H = np.clip(0.5 + effective_rain_mm / 100.0, 0.5, 20.0)
     decay_length_L = np.clip(150.0 / manning_factor, 30.0, 300.0)
 
     if algorithm == 'exp-hand':
@@ -523,7 +530,8 @@ def run(bounds, token, output_dir=None, zoom=None, expand_factor=2.0,
         flood_score = compute_test_algo(
             dem, osm_mask, osm_weight, transform,
             decay_length_m=decay_length_L,
-            max_flood_height_m=max_flood_height_H
+            max_flood_height_m=max_flood_height_H,
+            effective_rain_mm=effective_rain_mm
         )
         method_name = 'test-algo'
     else:
@@ -535,7 +543,8 @@ def run(bounds, token, output_dir=None, zoom=None, expand_factor=2.0,
         flood_score = compute_test_algo(
             dem, osm_mask, osm_weight, transform,
             decay_length_m=decay_length_L,
-            max_flood_height_m=max_flood_height_H
+            max_flood_height_m=max_flood_height_H,
+            effective_rain_mm=effective_rain_mm
         )
         method_name = 'test-algo'
 
