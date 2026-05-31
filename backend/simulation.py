@@ -220,6 +220,48 @@ def compute_flood_spread(dem, river_mask, transform,
     return flood_depth
 
 
+def compute_arcgis_flood(dem, river_mask, transform,
+                          river_stage_height=5.0,
+                          hydraulic_diffusivity=50.0,
+                          max_iter=2000):
+    """
+    Steady-state diffusion-wave flood solver (ArcGIS-inspired).
+    
+    Solves div(K · grad(W)) = 0 via successive averaging with
+    Dirichlet BC at river cells and terrain constraint W ≥ Z.
+    
+    W    = water surface elevation
+    Z    = ground elevation (DEM)
+    D    = W − Z  (flood depth)
+    """
+    Z = dem.astype(np.float64)
+    W = Z.copy()
+    W[river_mask] = Z[river_mask] + river_stage_height
+
+    for iteration in range(max_iter):
+        W_old = W.copy()
+
+        # Gauss-Seidel averaging for Laplace equation
+        # Interior cells relax toward the mean of their neighbours
+        W[1:-1, 1:-1] = 0.25 * (
+            W_old[0:-2, 1:-1] + W_old[2:, 1:-1] +
+            W_old[1:-1, 0:-2] + W_old[1:-1, 2:]
+        )
+
+        # Re-apply Dirichlet BC at river cells
+        W[river_mask] = Z[river_mask] + river_stage_height
+
+        # Terrain constraint: water cannot go below ground
+        W = np.maximum(W, Z)
+
+        diff = np.max(np.abs(W - W_old))
+        if diff < 0.001:
+            break
+
+    D = np.maximum(W - Z, 0)
+    return D
+
+
 def run(bounds, token, output_dir=None, zoom=None, expand_factor=2.0,
         river_threshold_pct=95, display_threshold_pct=50,
         algorithm='exp-hand',
@@ -288,6 +330,17 @@ def run(bounds, token, output_dir=None, zoom=None, expand_factor=2.0,
         )
         flood_score = np.where(flood_depth > 0.01, flood_depth, -1.0)
         method_name = 'bfs-spread'
+    elif algorithm == 'arcgis':
+        river_stage = np.clip(1.0 + effective_rain / 300.0, 1.0, 8.0)
+        hyd_diff = 100.0 / manning_factor
+        flood_depth = compute_arcgis_flood(
+            dem, river_mask, transform,
+            river_stage_height=river_stage,
+            hydraulic_diffusivity=hyd_diff,
+            max_iter=2000
+        )
+        flood_score = np.where(flood_depth > 0.01, flood_depth, -1.0)
+        method_name = 'arcgis'
     elif algorithm == 'proximity':
         pixel_size_m = math.sqrt(abs(transform.a * transform.e))
         dist_pixels, _ = compute_river_proximity_and_hand(river_mask, dem)
