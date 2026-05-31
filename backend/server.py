@@ -3,6 +3,8 @@ from flask_cors import CORS
 import sqlite3
 import json
 import os
+import math
+from datetime import datetime
 from urllib import request as urlrequest
 from urllib import parse as urlparse
 from urllib.error import URLError, HTTPError
@@ -656,6 +658,161 @@ def rivers_for_geometry():
     rivers_geojson = fetch_region_rivers(geometry)
     return jsonify(rivers_geojson)
 
+
+@app.route('/api/export-tif', methods=['POST'], strict_slashes=False)
+def export_tif():
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_bounds
+    from rasterio.io import MemoryFile
+
+    data = request.json or {}
+    geometry = parse_region_geometry_from_request(data)
+    if geometry is None:
+        return jsonify({'error': 'invalid bounds'}), 400
+
+    bounds = region_bounds_from_geometry(geometry)
+    if bounds is None:
+        return jsonify({'error': 'invalid geometry'}), 400
+
+    try:
+        with open(CONFIG_PATH) as f:
+            config = json.load(f)
+        token = config.get('MAPBOX_KEY', '')
+    except Exception:
+        return jsonify({'error': 'cannot read config'}), 500
+
+    if not token:
+        return jsonify({'error': 'no mapbox token'}), 400
+
+    dlat = bounds['maxLat'] - bounds['minLat']
+    dlng = bounds['maxLng'] - bounds['minLng']
+    if dlat <= 0 or dlng <= 0:
+        return jsonify({'error': 'empty bounds'}), 400
+
+    EARTH_CIRCUM = 40075016.686
+    target_res = 5.0
+    zoom = min(max(int(EARTH_CIRCUM / (target_res * 256)).bit_length() - 1, 10), 18)
+    n_tiles = 2.0 ** zoom
+
+    def lng_to_tilex(lng):
+        return max(0, min(int(math.floor(n_tiles * (lng + 180.0) / 360.0)), int(n_tiles) - 1))
+
+    def lat_to_tiley(lat):
+        lat_rad = math.radians(lat)
+        return max(0, min(
+            int(math.floor(n_tiles * (1 - math.asinh(math.tan(lat_rad)) / math.pi) / 2)),
+            int(n_tiles) - 1
+        ))
+
+    def tile_bounds(tx, ty):
+        left = tx / n_tiles * 360.0 - 180.0
+        right = (tx + 1) / n_tiles * 360.0 - 180.0
+        top = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * ty / n_tiles))))
+        bottom = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * (ty + 1) / n_tiles))))
+        return left, bottom, right, top
+
+    min_x = lng_to_tilex(bounds['minLng'])
+    max_x = lng_to_tilex(bounds['maxLng'])
+    min_y = lat_to_tiley(bounds['maxLat'])
+    max_y = lat_to_tiley(bounds['minLat'])
+
+    if min_x > max_x or min_y > max_y:
+        return jsonify({'error': 'tile computation failed'}), 400
+
+    tiles_x = max_x - min_x + 1
+    tiles_y = max_y - min_y + 1
+
+    TILE_SIZE = 256
+    width = tiles_x * TILE_SIZE
+    height = tiles_y * TILE_SIZE
+
+    left, _, _, top = tile_bounds(min_x, min_y)
+    _, bottom, right, _ = tile_bounds(max_x, max_y)
+    transform = from_bounds(left, bottom, right, top, width, height)
+
+    out_arr = np.zeros((3, height, width), dtype=np.uint8)
+    base_url = 'https://api.mapbox.com/v4/mapbox.satellite'
+
+    for ty_idx, ty in enumerate(range(min_y, max_y + 1)):
+        for tx_idx, tx in enumerate(range(min_x, max_x + 1)):
+            url = f'{base_url}/{zoom}/{tx}/{ty}.jpg?access_token={token}'
+            req = urlrequest.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            try:
+                with urlrequest.urlopen(req, timeout=15) as resp:
+                    tile_data = resp.read()
+            except Exception:
+                continue
+
+            try:
+                with MemoryFile(tile_data) as mem:
+                    with mem.open() as src:
+                        tile_arr = src.read()
+            except Exception:
+                continue
+
+            px = tx_idx * TILE_SIZE
+            py = ty_idx * TILE_SIZE
+            th = min(tile_arr.shape[1], TILE_SIZE)
+            tw = min(tile_arr.shape[2], TILE_SIZE)
+            out_arr[0, py:py+th, px:px+tw] = tile_arr[0, :th, :tw]
+            out_arr[1, py:py+th, px:px+tw] = tile_arr[1, :th, :tw]
+            out_arr[2, py:py+th, px:px+tw] = tile_arr[2, :th, :tw]
+
+    cache_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cache')
+    os.makedirs(cache_dir, exist_ok=True)
+
+    fname = f'satellite_{datetime.now().strftime("%Y%m%d_%H%M%S")}.tif'
+    fpath = os.path.join(cache_dir, fname)
+
+    profile = {
+        'driver': 'GTiff',
+        'height': height,
+        'width': width,
+        'count': 3,
+        'dtype': 'uint8',
+        'crs': 'EPSG:4326',
+        'transform': transform
+    }
+
+    with rasterio.open(fpath, 'w', **profile) as dst:
+        dst.write(out_arr)
+
+    return jsonify({'filename': fname, 'message': f'Saved cache/{fname}'})
+
+
+@app.route('/api/simulate', methods=['POST'], strict_slashes=False)
+def simulate():
+    import simulation as sim
+
+    data = request.json or {}
+    geometry = parse_region_geometry_from_request(data)
+    if geometry is None:
+        return jsonify({'error': 'invalid bounds'}), 400
+
+    bounds = region_bounds_from_geometry(geometry)
+    if bounds is None:
+        return jsonify({'error': 'invalid geometry'}), 400
+
+    try:
+        with open(CONFIG_PATH) as f:
+            config = json.load(f)
+        arcgis_token = config.get('ARCGIS_API', '')
+    except Exception:
+        arcgis_token = ''
+
+    try:
+        result = sim.run(bounds, arcgis_token)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    return jsonify(result)
+
+
+@app.route('/cache/<path:filename>')
+def serve_cache(filename):
+    cache_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cache')
+    return send_from_directory(cache_dir, filename)
 
 @app.route('/')
 def index():

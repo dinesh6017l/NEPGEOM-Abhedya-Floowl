@@ -26,7 +26,7 @@ let dynamicRiversController = null;
 let riverFlowAnimationFrame = null;
 let riverFlowStep = 0;
 let regionDiagonal = 1;
-const MAX_REGION_AREA_KM2 = 50;
+const MAX_REGION_AREA_KM2 = Infinity;
 
 function stripNonBmpChars(value) {
     return String(value || '').replace(/[\u{10000}-\u{10FFFF}]/gu, '').trim();
@@ -113,6 +113,9 @@ const locList = document.getElementById('location-list');
 const regionList = document.getElementById('region-list');
 const selectRegionBtn = document.getElementById('select-region-btn');
 const regionHint = document.getElementById('region-hint');
+const exportTifBtn = document.getElementById('export-tif-btn');
+const simulateBtn = document.getElementById('simulate-btn');
+const exportStatus = document.getElementById('export-status');
 
 function resetRegionSelectionState() {
     regionSelectionPoints = [];
@@ -219,6 +222,28 @@ function rectangleFeatureFromBounds(bounds, properties) {
             ]]
         }
     };
+}
+
+function locationToSimBounds(lng, lat, diagonalKm) {
+    const halfSide = (diagonalKm / Math.SQRT2) / 2;
+    const latRad = lat * Math.PI / 180;
+    const dLat = halfSide / 110.574;
+    const dLng = halfSide / (111.32 * Math.cos(latRad));
+    return {
+        minLng: lng - dLng,
+        minLat: lat - dLat,
+        maxLng: lng + dLng,
+        maxLat: lat + dLat
+    };
+}
+
+const LOCATION_SIM_DIAGONAL_KM = 5; // gives ~12.5 km² square
+
+function enableLocationSimBounds(lng, lat) {
+    const bounds = locationToSimBounds(lng, lat, LOCATION_SIM_DIAGONAL_KM);
+    const name = `Sim @ ${lat.toFixed(3)}, ${lng.toFixed(3)}`;
+    const feature = rectangleFeatureFromBounds(bounds, { name });
+    startRegionEdit(feature);
 }
 
 function getFeatureBounds(feature) {
@@ -913,6 +938,19 @@ function clearRegionEditState() {
     activeRegionEdit = null;
     setRegionEditPreview(null);
     clearRegionRiversLayer();
+    
+    if (map) {
+        if (map.getLayer('depth-simulation-layer')) {
+            map.removeLayer('depth-simulation-layer');
+        }
+        if (map.getSource('depth-simulation-source')) {
+            map.removeSource('depth-simulation-source');
+        }
+    }
+
+    exportTifBtn.style.display = 'none';
+    simulateBtn.style.display = 'none';
+    exportStatus.style.display = 'none';
 }
 
 function getActiveEditBounds() {
@@ -975,6 +1013,8 @@ function startRegionEdit(feature) {
     });
 
     applyRegionEditBounds(bounds);
+    exportTifBtn.style.display = 'inline-block';
+    simulateBtn.style.display = 'inline-block';
 }
 
 function updateRegionsOnMap(features) {
@@ -1676,6 +1716,29 @@ function ensureRegionLayers() {
 }
 
 async function initializeApp() {
+    // Mode switching
+    const modeSimpleBtn = document.getElementById('mode-simple-btn');
+    const modeComplexBtn = document.getElementById('mode-complex-btn');
+    const simpleContent = document.getElementById('simple-mode-content');
+    const complexContent = document.getElementById('complex-mode-content');
+
+    function setMode(mode) {
+        if (mode === 'complex') {
+            modeSimpleBtn.classList.remove('active');
+            modeComplexBtn.classList.add('active');
+            simpleContent.style.display = 'none';
+            complexContent.style.display = 'block';
+        } else {
+            modeComplexBtn.classList.remove('active');
+            modeSimpleBtn.classList.add('active');
+            complexContent.style.display = 'none';
+            simpleContent.style.display = 'block';
+        }
+    }
+
+    modeSimpleBtn.addEventListener('click', () => setMode('simple'));
+    modeComplexBtn.addEventListener('click', () => setMode('complex'));
+
     const warningEl = document.getElementById('token-warning');
     refreshLocationNamePlaceholder();
     try {
@@ -1705,7 +1768,7 @@ async function initializeApp() {
 
         map = new mapboxgl.Map({
             container: 'map', 
-            style: 'mapbox://styles/mapbox/outdoors-v12',
+            style: 'mapbox://styles/mapbox/satellite-streets-v12',
             center: [85.5374, 27.6182],
             zoom: 14,
             pitch: 45, 
@@ -1731,7 +1794,7 @@ async function initializeApp() {
                     if (regionPrepared) {
                         regionHint.textContent = 'Region prepared. Resize if needed, then click Add Region to save.';
                     } else {
-                        regionHint.textContent = `Region mode: click two opposite corners (max ${MAX_REGION_AREA_KM2} km2).`;
+                        regionHint.textContent = 'Region mode: click two opposite corners.';
                     }
                 }
                 return;
@@ -1740,6 +1803,8 @@ async function initializeApp() {
             locLngInput.value = e.lngLat.lng.toFixed(5);
             locLatInput.value = e.lngLat.lat.toFixed(5);
             setClickPreviewMarker(e.lngLat.lng, e.lngLat.lat);
+            // Create a simulation-ready square bounding box around the clicked point
+            enableLocationSimBounds(e.lngLat.lng, e.lngLat.lat);
         });
 
         // Load locations
@@ -1919,6 +1984,119 @@ addBtn.addEventListener('click', () => {
 });
 selectRegionBtn.addEventListener('click', () => {
     setRegionSelectMode(!isRegionSelectMode);
+});
+
+exportTifBtn.addEventListener('click', async () => {
+    const bounds = getActiveEditBounds();
+    if (!bounds) {
+        return;
+    }
+
+    exportStatus.textContent = 'Exporting satellite TIF...';
+    exportStatus.className = 'export-status';
+    exportStatus.style.display = 'block';
+
+    try {
+        const response = await fetch('/api/export-tif', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                minLng: bounds.minLng,
+                minLat: bounds.minLat,
+                maxLng: bounds.maxLng,
+                maxLat: bounds.maxLat
+            })
+        });
+        const payload = await parseJsonResponse(response);
+
+        if (response.ok && payload) {
+            exportStatus.textContent = payload.message;
+            exportStatus.className = 'export-status success';
+        } else {
+            exportStatus.textContent = (payload && payload.error) || 'Export failed';
+            exportStatus.className = 'export-status error';
+        }
+    } catch (err) {
+        exportStatus.textContent = 'Export error: ' + err.message;
+        exportStatus.className = 'export-status error';
+    }
+
+    exportStatus.style.display = 'block';
+});
+
+simulateBtn.addEventListener('click', async () => {
+    const bounds = getActiveEditBounds();
+    if (!bounds) {
+        return;
+    }
+
+    exportStatus.textContent = 'Running DEM simulation...';
+    exportStatus.className = 'export-status';
+    exportStatus.style.display = 'block';
+
+    try {
+        const response = await fetch('/api/simulate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                minLng: bounds.minLng,
+                minLat: bounds.minLat,
+                maxLng: bounds.maxLng,
+                maxLat: bounds.maxLat
+            })
+        });
+        const payload = await parseJsonResponse(response);
+
+        if (response.ok && payload) {
+            const vr = payload.velocity_range || {};
+            exportStatus.textContent = `Simulation done. mag_max=${vr.mag_max ? vr.mag_max.toFixed(2) : '?'}`;
+            exportStatus.className = 'export-status success';
+
+            if (payload.depth_png) {
+                // Add the depth grayscale PNG to Mapbox
+                const sourceId = 'depth-simulation-source';
+                const layerId = 'depth-simulation-layer';
+
+                if (map.getLayer(layerId)) {
+                    map.removeLayer(layerId);
+                }
+                if (map.getSource(sourceId)) {
+                    map.removeSource(sourceId);
+                }
+
+                const pBounds = payload.png_bounds || payload.bounds;
+
+                map.addSource(sourceId, {
+                    type: 'image',
+                    url: payload.depth_png,
+                    coordinates: [
+                        [pBounds.minLng, pBounds.maxLat], // top left
+                        [pBounds.maxLng, pBounds.maxLat], // top right
+                        [pBounds.maxLng, pBounds.minLat], // bottom right
+                        [pBounds.minLng, pBounds.minLat]  // bottom left
+                    ]
+                });
+
+                map.addLayer({
+                    id: layerId,
+                    type: 'raster',
+                    source: sourceId,
+                    paint: {
+                        'raster-opacity': 0.75,
+                        'raster-fade-duration': 0
+                    }
+                });
+            }
+        } else {
+            exportStatus.textContent = (payload && payload.error) || 'Simulation failed';
+            exportStatus.className = 'export-status error';
+        }
+    } catch (err) {
+        exportStatus.textContent = 'Simulation error: ' + err.message;
+        exportStatus.className = 'export-status error';
+    }
+
+    exportStatus.style.display = 'block';
 });
 
 // Start the app
