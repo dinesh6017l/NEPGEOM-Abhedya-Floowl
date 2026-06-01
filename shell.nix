@@ -27,8 +27,6 @@ pkgs.mkShell {
         else
           echo "Frontend npm dependencies already installed."
         fi
-      elif [ -f frontend/package-lock.json ]; then
-        echo "Found frontend/package-lock.json but no package.json; skipping npm install."
       else
         echo "No frontend package manifest found; skipping npm install."
       fi
